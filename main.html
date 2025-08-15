@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MIDI Keyboard Trainer – Grand Staff + 88 Keys</title>
+<style>
+  :root{ --bg:#0b0f14; --panel:#121821; --card:#0f141c; --muted:#9fb0c3; --ink:#e7f0fb; --accent:#7cc5ff; --ok:#57d39b; --warn:#ffd166; --bad:#ff6b6b; --hint:#ffd166; }
+  *{box-sizing:border-box}
+  html,body{height:100%; margin:0; font-family:Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color:var(--ink); background:linear-gradient(180deg,#0b0f14 0%, #101723 100%)}
+  .app{display:grid; grid-template-columns:360px 1fr; gap:16px; height:100%; padding:16px}
+  .left{background:var(--panel); border:1px solid #1a2330; border-radius:16px; padding:14px; overflow:auto}
+  .right{display:grid; grid-template-rows:auto 1fr auto; gap:8px; min-width:0}
+  h1{font-size:18px; margin:4px 0 10px}
+  .row{display:flex; gap:8px; align-items:center; margin:8px 0}
+  .card{background:var(--card); border:1px solid #162033; border-radius:14px; padding:12px}
+  label{font-size:12px; color:var(--muted)}
+  select,button,input[type="checkbox"]{background:#0c131d; color:var(--ink); border:1px solid #1c2a41; border-radius:10px; padding:8px 10px; font-size:14px}
+  button{cursor:pointer}
+  button.primary{background:linear-gradient(135deg,#1a7bd9,#35a7ff); border:none}
+  .pill{display:inline-flex; align-items:center; gap:8px; padding:8px 10px; background:#0c131d; border:1px solid #1a2330; border-radius:999px; font-size:12px; color:var(--muted)}
+  .status-dot{width:8px; height:8px; border-radius:50%}
+  .status-ok{background:var(--ok)}
+  .status-warn{background:var(--warn)}
+
+  /* Grand staff */
+  #staffWrap{position:relative; height:580px}
+  svg{width:100%; height:100%}
+  .notehead{fill:var(--ink)}
+  .notehead.hint{fill:var(--hint)}
+  .notehead.correct{fill:var(--ok)}
+  .notehead.wrong{fill:var(--bad)}
+  .fing{fill:#9fb0c3; font-size:12px}
+
+  /* Piano */
+  .pianoOuter{overflow-x:auto; display:flex; justify-content:center}
+  .piano{position:relative; height:220px; user-select:none}
+  .key{position:absolute; top:0; border:1px solid #0a0a0a; cursor:pointer}
+  .white{width:26px; height:220px; background:#fff; border-bottom-left-radius:6px; border-bottom-right-radius:6px}
+  .black{width:16px; height:136px; background:#111; z-index:2; border-radius:0 0 4px 4px; border-color:#000}
+  .key.active.white{background:#b9e5ff}
+  .key.active.black{background:#4aa3ff}
+  .key.lesson-expected{box-shadow:0 0 0 3px var(--hint) inset}
+  .key.lesson-correct{box-shadow:0 0 0 3px var(--ok) inset}
+  .key.lesson-wrong{box-shadow:0 0 0 3px var(--bad) inset}
+  .fnumKey{position:absolute; bottom:6px; left:0; right:0; margin:auto; width:18px; height:18px; text-align:center; line-height:18px; font-size:11px; color:#0b0f14; background:#cfe2ff; border-radius:50%; border:1px solid #90b7ff; pointer-events:none}
+
+  .footer{color:var(--muted); font-size:12px; display:flex; justify-content:space-between; align-items:center}
+  .badgelist{display:flex; gap:8px; flex-wrap:wrap}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="left">
+    <h1>MIDI Keyboard Trainer</h1>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <span class="pill"><span class="status-dot status-warn" id="midiDot"></span> <span id="midiStatus">Request MIDI</span></span>
+        <button id="reqMidi" class="primary">Enable MIDI</button>
+      </div>
+      <div class="row"><label>Input:</label>
+        <select id="midiIn"></select>
+      </div>
+      <div class="row"><label><input type="checkbox" id="playAudio"> Sound (WebAudio)</label></div>
+      <div class="row"><label><input type="checkbox" id="showNoteNames"> Show note names</label></div>
+      <div class="row"><button id="clearNotes" title="Clear staff">Clear notes</button></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="gap:12px; flex-wrap:wrap">
+        <div>
+          <label>Mode</label><br>
+          <select id="mode">
+            <option>Free Play</option>
+            <option>Learn Scale</option>
+            <option>Learn Chord</option>
+            <option>Practice</option>
+          </select>
+        </div>
+        <div id="rootWrap">
+          <label>Root</label><br>
+          <select id="root"></select>
+        </div>
+        <div id="scaleWrap">
+          <label>Scale</label><br>
+          <select id="scaleType"></select>
+        </div>
+        <div id="practiceSets" class="hidden" style="margin-left:6px">
+          <label>Practice mix</label>
+          <div id="practiceScales" style="margin:6px 0 4px 0"></div>
+          <div id="practiceChords" style="margin:4px 0 0 0"></div>
+        </div>
+        <div id="chordWrap" class="hidden">
+          <label>Chord</label><br>
+          <select id="chordType"></select>
+        </div>
+        <div style="align-self:end">
+          <button id="applyLesson">Apply</button>
+        </div>
+      </div>
+      <div class="row" style="gap:12px; flex-wrap:wrap">
+        <label><input type="checkbox" id="leftHand"> Left hand</label>
+        <label><input type="checkbox" id="rightHand" checked> Right hand</label>
+        <label><input type="checkbox" id="bothHands"> Both hands</label>
+      </div>
+      <div class="row"><label><input type="checkbox" id="showFingers"> Show finger numbering</label></div>
+      <div class="row" id="lessonInfo" style="margin-top:6px; font-size:13px; color:var(--muted)"></div>
+    </div>
+  </aside>
+
+  <main class="right">
+    <div class="card" id="staffWrap">
+      <svg id="staff" viewBox="0 0 1700 580" preserveAspectRatio="none" aria-label="Grand staff"></svg>
+    </div>
+
+    <div class="card pianoOuter" style="min-height:240px">
+      <div class="piano" id="piano"></div>
+    </div>
+
+    <div class="footer">
+      <div class="badgelist">
+        <span class="pill">Range: <strong id="rangeLabel"></strong></span>
+        <span class="pill">Held: <strong id="heldCount">0</strong></span>
+        <span class="pill">Last: <strong id="lastNote">—</strong></span>
+      </div>
+      <div>Web MIDI works in Chrome/Edge desktop.</div>
+    </div>
+  </main>
+</div>
+
+<script>
+(function(){
+  // ---------- Music helpers ----------
+  const NOTE_NAMES=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+  const WHITE_PCS=new Set([0,2,4,5,7,9,11]);
+  const PC_TO_WHITE_STEP_SHARP={0:0,1:0,2:1,3:1,4:2,5:3,6:3,7:4,8:4,9:5,10:5,11:6};
+  const PC_TO_WHITE_STEP_FLAT ={0:0,1:1,2:1,3:2,4:2,5:3,6:4,7:4,8:5,9:5,10:6,11:6};
+  const midiToPC=n=>n%12, midiOct=n=>Math.floor(n/12)-1;
+  function midiToName(n){const pc=n%12,oct=midiOct(n);return NOTE_NAMES[pc]+oct}
+  function midiToSimpleName(n,acc){const pc=n%12,oct=midiOct(n);let name=NOTE_NAMES[pc];if(acc==='\u266D'){const flats={1:'D\u266D',3:'E\u266D',6:'G\u266D',8:'A\u266D',10:'B\u266D'};name=flats[pc]||name}return name.replace('#','\u266F')+oct}
+  function midiToStep(n,acc){const pc=n%12,o=midiOct(n);const map=acc==='\u266D'?PC_TO_WHITE_STEP_FLAT:PC_TO_WHITE_STEP_SHARP;return (o-4)*7+map[pc]}
+  function accidentalFor(pc){return WHITE_PCS.has(pc)?null:'\u266F'}
+  function chooseAccidentalForChord(midi,chPC){const pc=midiToPC(midi);const flatable=new Set([1,3,6,8,10]);if(!flatable.has(pc))return accidentalFor(pc);const prevNat=(pc===1?0:pc===3?2:pc===6?5:pc===8?7:9);return chPC.has(prevNat)?'\u266D':'\u266F'}
+
+  // ---------- Lesson sets ----------
+  const SCALES={
+    'Major':[0,2,4,5,7,9,11],
+    'Natural Minor':[0,2,3,5,7,8,10],
+    'Major Pentatonic':[0,2,4,7,9],
+    'Minor Pentatonic':[0,3,5,7,10],
+    'Blues Minor':[0,3,5,6,7,10],
+  };
+  const CHORDS={ 'Major':[0,4,7],'Minor':[0,3,7],'Diminished':[0,3,6],'Major 7':[0,4,7,11],'Minor 7':[0,3,7,10],'Dominant 7':[0,4,7,10] };
+  function pcsToMidisAround(oct,rootPC,pcs){const base=12*(oct+1)+rootPC;return pcs.map(semi=>base+semi)}
+  function buildSet(rootPC,arr){return new Set(arr.map(s=>(rootPC+s)%12))}
+
+  // ---------- State ----------
+  const state={
+    held:new Set(), midi:null, inputs:[], activeInput:null,
+    lesson:{mode:'Free Play', rootPC:0, scale:'Major', chord:'Major', set:new Set(), seqRH:[], seqLH:[], seqBothLH:[], seqBothRH:[], progressRH:0, progressLH:0, completed:false, chordMidis:[]},
+    synth:{ctx:null, nodes:{}},
+    timeline:[], lastEventTime:0, chordWindow:60,
+    idleTimer:null, practiceLabel:'', practiceKind:'scale'
+  };
+  const el=id=>document.getElementById(id);
+
+  // ---------- UI setup ----------
+  function setupUI(){
+    NOTE_NAMES.forEach((n,i)=>{const o=document.createElement('option');o.value=i;o.textContent=n;el('root').appendChild(o)});
+    Object.keys(SCALES).forEach(k=>{const o=document.createElement('option');o.textContent=k;el('scaleType').appendChild(o)});
+    Object.keys(CHORDS).forEach(k=>{const o=document.createElement('option');o.textContent=k;el('chordType').appendChild(o)});
+
+    el('mode').addEventListener('change',()=>{
+      const m=el('mode').value; state.lesson.mode=m;
+      const showScales=(m==='Learn Scale'||m==='Practice');
+      const showChords=(m==='Learn Chord'||m==='Practice');
+      el('rootWrap').classList.toggle('hidden', m==='Free Play' || m==='Practice');
+      el('scaleWrap').classList.toggle('hidden', m==='Free Play' || !showScales);
+      el('practiceSets').classList.toggle('hidden', m!=='Practice');
+      el('chordWrap').classList.toggle('hidden', !showChords);
+      applyLesson();
+      if(m==='Practice') nextPracticeTarget();
+    });
+
+    if(el('mode').value==='Free Play'){ el('rootWrap').classList.add('hidden'); el('scaleWrap').classList.add('hidden'); }
+
+    el('root').addEventListener('change',()=>{state.lesson.rootPC=parseInt(el('root').value,10);applyLesson()});
+    el('scaleType').addEventListener('change',()=>{state.lesson.scale=el('scaleType').value;applyLesson()});
+    el('chordType').addEventListener('change',()=>{state.lesson.chord=el('chordType').value;applyLesson()});
+    el('applyLesson').addEventListener('click',()=>{applyLesson(); if(el('mode').value==='Practice') nextPracticeTarget();});
+    el('reqMidi').addEventListener('click',requestMIDI);
+    el('showNoteNames').addEventListener('change',drawGrandStaff);
+    el('playAudio').addEventListener('change',e=>{if(e.target.checked&&!state.synth.ctx){state.synth.ctx=new(window.AudioContext||window.webkitAudioContext)();}});
+    el('leftHand').addEventListener('change',applyLesson);
+    el('rightHand').addEventListener('change',applyLesson);
+    el('bothHands').addEventListener('change',applyLesson);
+    el('showFingers').addEventListener('change',()=>{updateKeyFingerLabels();drawGrandStaff()});
+    el('clearNotes').addEventListener('click',()=>{resetTimeline(true)});
+
+    // Build practice mix checkboxes
+    const ps=el('practiceScales'); const pc=el('practiceChords');
+    if(ps&&pc){
+      ps.innerHTML='<div style="font-size:12px;color:var(--muted);margin-bottom:4px">Scales</div>';
+      Object.keys(SCALES).forEach((k,i)=>{ const id='chkS'+i; const w=document.createElement('label'); w.style.marginRight='8px'; w.innerHTML=`<input type="checkbox" class="chk-scale" id="${id}" ${k==='Major'?'checked':''}> ${k}`; ps.appendChild(w); });
+      pc.innerHTML='<div style="font-size:12px;color:var(--muted);margin-bottom:4px">Chords</div>';
+      Object.keys(CHORDS).forEach((k,i)=>{ const id='chkC'+i; const w=document.createElement('label'); w.style.marginRight='8px'; w.innerHTML=`<input type="checkbox" class="chk-chord" id="${id}"> ${k}`; pc.appendChild(w); });
+    }
+
+    buildPiano();
+    applyLesson();
+  }
+
+  function getPracticeChoices(){
+    const choices=[];
+    document.querySelectorAll('.chk-scale').forEach(c=>{ if(c.checked) choices.push({kind:'scale', name:c.parentElement.textContent.trim()}); });
+    document.querySelectorAll('.chk-chord').forEach(c=>{ if(c.checked) choices.push({kind:'chord', name:c.parentElement.textContent.trim()}); });
+    if(!choices.length){ choices.push({kind:'scale', name:el('scaleType').value}); }
+    return choices;
+  }
+  function nextPracticeTarget(){
+    const picks=getPracticeChoices();
+    const choice=picks[Math.floor(Math.random()*picks.length)];
+    state.lesson.rootPC=Math.floor(Math.random()*12);
+    state.practiceLabel = NOTE_NAMES[state.lesson.rootPC] + ' ' + choice.name + (choice.kind==='chord'?' Chord':'');
+    state.practiceKind=choice.kind;
+    if(choice.kind==='scale'){ const sSel=el('scaleType'); if(sSel) sSel.value=choice.name; }
+    else { const cSel=el('chordType'); if(cSel) cSel.value=choice.name; }
+    const rootSel=el('root'); if(rootSel && rootSel.options.length){ rootSel.value=String(state.lesson.rootPC); }
+    applyLesson();
+  }
+
+  function clearLessonHighlights(){document.querySelectorAll('.key').forEach(k=>k.classList.remove('lesson-expected','lesson-correct','lesson-wrong'))}
+  function resetTimeline(clearHints){state.timeline=[];if(clearHints){state.lesson.completed=false;}drawGrandStaff()}
+  function resetIdleTimer(){if(state.idleTimer)clearTimeout(state.idleTimer);state.idleTimer=setTimeout(()=>{state.timeline=[];drawGrandStaff()},3000)}
+
+  // ---------- Fingering maps (Major + Natural Minor) ----------
+  const RH_MAJOR_MAP={
+    0:[1,2,3,1,2,3,4,5], 1:[2,3,4,1,2,3,4,5], 2:[1,2,3,1,2,3,4,5], 3:[2,3,4,1,2,3,4,5],
+    4:[1,2,3,1,2,3,4,5], 5:[1,2,3,4,1,2,3,4], 6:[2,3,4,1,2,3,4,5], 7:[1,2,3,1,2,3,4,5],
+    8:[2,3,4,1,2,3,4,5], 9:[1,2,3,1,2,3,4,5],10:[2,3,4,1,2,3,4,5],11:[1,2,3,1,2,3,4,5]
+  };
+  const LH_MAJOR_MAP={
+    0:[5,4,3,2,1,3,2,1], 1:[4,3,2,1,4,3,2,1], 2:[5,4,3,2,1,3,2,1], 3:[3,2,1,4,3,2,1,3],
+    4:[5,4,3,2,1,3,2,1], 5:[5,4,3,2,1,3,2,1], 6:[4,3,2,1,4,3,2,1], 7:[5,4,3,2,1,3,2,1],
+    8:[3,2,1,4,3,2,1,3], 9:[5,4,3,2,1,3,2,1],10:[3,2,1,4,3,2,1,3],11:[4,3,2,1,4,3,2,1]
+  };
+
+  // Natural minor maps: define once; reuse if already present in page
+  if(!('RH_NAT_MINOR_MAP' in window)){ window.RH_NAT_MINOR_MAP={ 9:[1,2,3,1,2,3,4,5] }; }
+  if(!('LH_NAT_MINOR_MAP' in window)){ window.LH_NAT_MINOR_MAP={ 9:[5,4,3,2,1,3,2,1] }; }
+  const RH_NAT_MINOR = window.RH_NAT_MINOR_MAP;
+  const LH_NAT_MINOR = window.LH_NAT_MINOR_MAP;
+
+  function fingeringFor(scaleName,hand){
+    const pc=(state.lesson.rootPC||0)%12;
+    if(scaleName==='Major'){
+      return hand==='RH' ? (RH_MAJOR_MAP[pc]||[1,2,3,1,2,3,4,5])
+                         : (LH_MAJOR_MAP[pc]||[5,4,3,2,1,3,2,1]);
+    }
+    if(scaleName==='Natural Minor'){
+      return hand==='RH' ? (RH_NAT_MINOR[pc]||[1,2,3,1,2,3,4,5])
+                         : (LH_NAT_MINOR[pc]||[5,4,3,2,1,3,2,1]);
+    }
+    return hand==='RH'?[1,2,3,1,2,3,4,5]:[5,4,3,2,1,3,2,1];
+  }
+
+  function applyLesson(){
+    state.lesson.completed=false; state.timeline=[];
+    const mode=state.lesson.mode;
+    const scaleName=el('scaleType').value;
+    const dropRoot = parseInt(el('root').value||'0',10);
+    const rootPC = (mode==='Practice') ? state.lesson.rootPC : dropRoot;
+    state.lesson.rootPC = rootPC;
+
+    let arr=[]; if(mode!=='Learn Chord'){arr=SCALES[scaleName];} else {arr=CHORDS[el('chordType').value];}
+    state.lesson.set=buildSet(rootPC,arr);
+
+    const LH=el('bothHands').checked||el('leftHand').checked;
+    const RH=el('bothHands').checked||el('rightHand').checked;
+
+    if(mode==='Learn Scale' || (mode==='Practice' && state.practiceKind!=='chord')){
+      state.lesson.seqRH   = RH? pcsToMidisAround(4,rootPC,SCALES[scaleName].concat([12])):[];
+      state.lesson.seqLH   = (LH&&!el('bothHands').checked)? pcsToMidisAround(2,rootPC,SCALES[scaleName].concat([12])):[];
+      state.lesson.seqBothRH = (RH&&el('bothHands').checked)? pcsToMidisAround(4,rootPC,SCALES[scaleName].concat([12])):[];
+      state.lesson.seqBothLH = (LH&&el('bothHands').checked)? pcsToMidisAround(1,rootPC,SCALES[scaleName].concat([12])):[];
+      state.lesson.progressRH=0; state.lesson.progressLH=0;
+    } else { state.lesson.seqRH=state.lesson.seqLH=state.lesson.seqBothRH=state.lesson.seqBothLH=[]; state.lesson.progressRH=state.lesson.progressLH=0; }
+
+    if(mode==='Learn Chord' || (mode==='Practice' && state.practiceKind==='chord')){
+      state.lesson.chordMidis=pcsToMidisAround(4,rootPC,CHORDS[el('chordType').value]);
+    } else state.lesson.chordMidis=[];
+
+    // Keyboard highlights
+    document.querySelectorAll('.key').forEach(k=>{
+      const m=parseInt(k.dataset.midi,10);
+      k.classList.remove('lesson-correct','lesson-wrong','lesson-expected');
+      const shouldYellow=(state.lesson.seqRH.includes(m)||state.lesson.seqLH.includes(m)||state.lesson.seqBothRH.includes(m)||state.lesson.seqBothLH.includes(m)||state.lesson.chordMidis.includes(m));
+      if(shouldYellow)k.classList.add('lesson-expected');
+      const badge=k.querySelector('.fnumKey'); if(badge)badge.remove();
+    });
+    updateKeyFingerLabels();
+
+    el('lessonInfo').textContent = (mode==='Practice'?'Practice: '+state.practiceLabel:'');
+    drawGrandStaff();
+  }
+
+  function updateKeyFingerLabels(){
+    const show=el('showFingers').checked; if(!show) return;
+    const add=(m,txt)=>{const k=document.querySelector(`.key[data-midi="${m}"]`); if(!k)return; const b=document.createElement('div'); b.className='fnumKey'; b.textContent=txt; k.appendChild(b);};
+    const fr=fingeringFor(el('scaleType').value,'RH');
+    const fl=fingeringFor(el('scaleType').value,'LH');
+    state.lesson.seqRH.forEach((m,i)=>add(m,fr[i]||''));
+    state.lesson.seqLH.forEach((m,i)=>add(m,fl[i]||''));
+    state.lesson.seqBothRH.forEach((m,i)=>add(m,fr[i]||''));
+    state.lesson.seqBothLH.forEach((m,i)=>add(m,fl[i]||''));
+  }
+
+  // ---------- Piano ----------
+  const LOW=21, HIGH=108; const isWhitePC=pc=>[0,2,4,5,7,9,11].includes(pc);
+  function buildPiano(){
+    const wrap=el('piano'); wrap.innerHTML='';
+    const keyW=26, blackW=16; let whiteIndex=0;
+    for(let m=LOW;m<=HIGH;m++){
+      const pc=m%12; if(isWhitePC(pc)){ const left=whiteIndex*keyW;
+        const k=document.createElement('div'); k.className='key white'; k.style.left=left+'px'; k.dataset.midi=m; k.title=midiToName(m);
+        k.addEventListener('mousedown',()=>noteOn(m)); k.addEventListener('mouseup',()=>noteOff(m)); k.addEventListener('mouseleave',()=>noteOff(m));
+        wrap.appendChild(k); whiteIndex++;
+      }
+    }
+    const totalWhites=whiteIndex; wrap.style.width=(totalWhites*keyW+2)+'px';
+    function leftOfPrevWhite(m){let idx=0,prevIdx=0;for(let x=LOW;x<=m;x++){if(isWhitePC(x%12)){prevIdx=idx;idx++;}}return prevIdx*keyW;}
+    for(let m=LOW;m<=HIGH;m++){
+      const pc=m%12; if(!isWhitePC(pc)){ const prevLeft=leftOfPrevWhite(m); const left=prevLeft+keyW*0.68-blackW/2;
+        const k=document.createElement('div'); k.className='key black'; k.style.left=left+'px'; k.dataset.midi=m; k.title=midiToName(m);
+        k.addEventListener('mousedown',()=>noteOn(m)); k.addEventListener('mouseup',()=>noteOff(m)); k.addEventListener('mouseleave',()=>noteOff(m));
+        wrap.appendChild(k);
+      }
+    }
+    el('rangeLabel').textContent=midiToName(LOW)+' – '+midiToName(HIGH);
+  }
+  function setKeyActive(midi,on){const k=document.querySelector(`.key[data-midi="${midi}"]`); if(k)k.classList.toggle('active',!!on)}
+
+  // ---------- Classic staff engine (reverted logic) ----------
+  const STAFF={ width:1700, gap:16, lines:5, offsetY:20, topTreble:170 };
+  function bottomTrebleY(){ return (STAFF.topTreble + STAFF.offsetY) + STAFF.gap*(STAFF.lines-1); }
+  function topBassY(){ return bottomTrebleY() + 2 * STAFF.gap; } // B3,C4,D4 in the gap
+
+  // Global step axis: Middle C (MIDI 60) = step 0
+  const PC_TO_STEP = {0:0,1:0,2:1,3:1,4:2,5:3,6:3,7:4,8:4,9:5,10:5,11:6};
+  function stepFromMidi(m){ const pc=m%12; const oct=Math.floor(m/12)-1; return (oct-4)*7 + PC_TO_STEP[pc]; }
+  function yFromStep(step){ const centerLedgerY = bottomTrebleY() + STAFF.gap; return centerLedgerY - step * (STAFF.gap/2); }
+
+  // Bounds in steps (relative to Middle C = 0)
+  const TREBLE_BOTTOM_STEP =  2;  // E4
+  const TREBLE_TOP_STEP    = 10;  // E5
+  const BASS_TOP_STEP      = -2;  // G3
+  const BASS_BOTTOM_STEP   = -10; // G2
+
+  function drawLedgersClassic(svg, x, step){
+    if (step > TREBLE_TOP_STEP){
+      for (let s = TREBLE_TOP_STEP + 2; s <= step; s += 2){
+        const y = yFromStep(s);
+        svg.appendChild(lineEl(x-12, y, x+12, y, '#cfe2ff', 1.5));
+      }
+    }
+    if (step < BASS_BOTTOM_STEP){
+      for (let s = BASS_BOTTOM_STEP - 2; s >= step; s -= 2){
+        const y = yFromStep(s);
+        svg.appendChild(lineEl(x-12, y, x+12, y, '#cfe2ff', 1.5));
+      }
+    }
+    if (step > BASS_TOP_STEP && step < TREBLE_BOTTOM_STEP){
+      const y = bottomTrebleY() + STAFF.gap;
+      svg.appendChild(lineEl(x-12, y, x+12, y, '#cfe2ff', 1.5));
+    }
+  }
+
+  function drawNoteClassic(svg, x, midi, acc, label, classes){
+    const step  = stepFromMidi(midi);
+    const y     = yFromStep(step);
+    drawLedgersClassic(svg, x, step);
+
+    const which = (step >= 0) ? 'treble' : 'bass';
+    const topY  = (which==='treble') ? (STAFF.topTreble + STAFF.offsetY) : topBassY();
+    const midLineY = topY + STAFF.gap*2;
+
+    if (acc){ svg.appendChild(textEl(x-22, y+6, acc, '#e7f0fb', 18)); }
+
+    const head = document.createElementNS('http://www.w3.org/2000/svg','ellipse');
+    head.setAttribute('cx', x); head.setAttribute('cy', y);
+    head.setAttribute('rx', 9); head.setAttribute('ry', 6);
+    head.setAttribute('class', (classes||['notehead']).join(' '));
+    svg.appendChild(head);
+
+    const stemUp = y > midLineY;
+    svg.appendChild(lineEl(x+9, y, x+9, y-(stemUp?28:-28), '#e7f0fb', 1.5));
+
+    if (label){ svg.appendChild(textEl(x-12, y+22, label, '#9fb0c3', 12)); }
+  }
+
+  function drawGrandStaff(){
+    const svg=el('staff'); svg.innerHTML='';
+
+    // Optional practice label
+    if(state.lesson.mode==='Practice' && state.practiceLabel){
+      const t=textEl(STAFF.width/2, 540, 'Practice: '+state.practiceLabel, '#ffd166', 22); t.setAttribute('text-anchor','middle'); svg.appendChild(t);
+    }
+
+    // Treble lines (steps 2..10)
+    for (let s = TREBLE_BOTTOM_STEP; s <= TREBLE_TOP_STEP; s += 2){
+      const y = yFromStep(s);
+      svg.appendChild(lineEl(80, y, STAFF.width-40, y, '#cfe2ff', 1.1));
+    }
+    // Bass lines (steps -10..-2)
+    for (let s = BASS_BOTTOM_STEP; s <= BASS_TOP_STEP; s += 2){
+      const y = yFromStep(s);
+      svg.appendChild(lineEl(80, y, STAFF.width-40, y, '#cfe2ff', 1.1));
+    }
+
+    // System bracket
+    svg.appendChild(lineEl(76, yFromStep(TREBLE_TOP_STEP), 76, yFromStep(BASS_BOTTOM_STEP), '#cfe2ff', 2));
+
+    // Clefs positioned by step
+    svg.appendChild(textEl(104, yFromStep(6) + 26, '\uD834\uDD1E', '#e7f0fb', 70));  // treble clef
+    svg.appendChild(textEl(104, yFromStep(-6) + 18, '\uD834\uDD22', '#e7f0fb', 72)); // bass clef
+
+    const showNames=el('showNoteNames').checked, showFingers=el('showFingers').checked;
+    const seqs=[];
+    if(state.lesson.seqRH.length)seqs.push({arr:state.lesson.seqRH,hand:'RH',prog:state.lesson.progressRH});
+    if(state.lesson.seqLH.length)seqs.push({arr:state.lesson.seqLH,hand:'LH',prog:state.lesson.progressLH});
+    if(state.lesson.seqBothRH.length)seqs.push({arr:state.lesson.seqBothRH,hand:'RH',prog:state.lesson.progressRH});
+    if(state.lesson.seqBothLH.length)seqs.push({arr:state.lesson.seqBothLH,hand:'LH',prog:state.lesson.progressLH});
+
+    const xStart=240, dx=42;
+
+    // Scale/practice hints
+    if((state.lesson.mode==='Learn Scale'||(state.lesson.mode==='Practice'&&state.practiceKind!=='chord')) && !state.lesson.completed){
+      seqs.forEach(seq=>{
+        const fingers=fingeringFor(el('scaleType').value,seq.hand);
+        seq.arr.forEach((m,idx)=>{
+          const cls=['notehead','hint']; if(idx<seq.prog)cls.push('correct');
+          const x=xStart+idx*dx+(seq.hand==='RH'?0:-6);
+          drawNoteClassic(svg,x,m,accidentalFor(m%12),showNames?midiToSimpleName(m):null,cls);
+          if(showFingers&&idx<fingers.length){ svg.appendChild(textEl(x-3,yFromStep(stepFromMidi(m))+34,String(fingers[idx]),'#9fb0c3',11,'fing')); }
+        });
+      });
+    }
+
+    // Chord hints
+    if((state.lesson.mode==='Learn Chord'||(state.lesson.mode==='Practice'&&state.practiceKind==='chord')) && state.lesson.chordMidis.length && !state.lesson.completed){
+      const chordPCs=new Set(state.lesson.chordMidis.map(m=>m%12)); const x=240;
+      state.lesson.chordMidis.slice().sort((a,b)=>a-b).forEach(m=>{
+        const acc=chooseAccidentalForChord(m,chordPCs);
+        drawNoteClassic(svg,x,m,acc,showNames?midiToSimpleName(m,acc):null,['notehead','hint']);
+      });
+    }
+
+    // Played timeline groups (stacked for simultaneity)
+    const groups=state.timeline.slice(-18), groupDX=56;
+    groups.forEach((g,gi)=>{
+      const chordPCs=new Set(g.notes.map(m=>m%12)); const x=240+gi*groupDX;
+      g.notes.slice().sort((a,b)=>a-b).forEach(m=>{
+        const acc=chooseAccidentalForChord(m,chordPCs);
+        drawNoteClassic(svg,x,m,acc,showNames?midiToSimpleName(m,acc):null,['notehead']);
+      });
+    });
+  }
+
+  function lineEl(x1,y1,x2,y2,color,w){const l=document.createElementNS('http://www.w3.org/2000/svg','line'); l.setAttribute('x1',x1);l.setAttribute('y1',y1);l.setAttribute('x2',x2);l.setAttribute('y2',y2);l.setAttribute('stroke',color);l.setAttribute('stroke-width',w);return l}
+  function textEl(x,y,txt,color,fs,cls){const t=document.createElementNS('http://www.w3.org/2000/svg','text'); t.setAttribute('x',x);t.setAttribute('y',y);t.setAttribute('fill',color);t.setAttribute('font-size',fs);t.setAttribute('font-family','Inter, system-ui, sans-serif'); if(cls)t.setAttribute('class',cls); t.textContent=txt; return t}
+
+  // ---------- MIDI ----------
+  async function requestMIDI(){ try{ const access=await navigator.requestMIDIAccess({sysex:false}); state.midi=access; el('midiStatus').textContent='Ready'; el('midiDot').className='status-dot status-ok'; access.onstatechange=refreshMIDIInputs; refreshMIDIInputs(); } catch(e){ el('midiStatus').textContent='Unavailable'; el('midiDot').className='status-dot status-warn'; alert('Web MIDI not available. Try Chrome/Edge on desktop.'); } }
+  function refreshMIDIInputs(){ const sel=el('midiIn'); sel.innerHTML=''; if(!state.midi) return; const inputs=[...state.midi.inputs.values()]; state.inputs=inputs; inputs.forEach(inp=>{ const o=document.createElement('option'); o.value=inp.id; o.textContent=inp.name; sel.appendChild(o); }); if(inputs.length){ setInput(inputs[0].id); sel.value=inputs[0].id; } sel.onchange=()=>setInput(sel.value); }
+  function setInput(id){ const inp=state.inputs.find(i=>i.id===id); if(!inp) return; if(state.activeInput) state.activeInput.onmidimessage=null; state.activeInput=inp; inp.onmidimessage=onMIDIMessage; }
+  function onMIDIMessage(e){ const [st,d1,d2]=e.data, cmd=st&0xf0; if(cmd===0x90&&d2>0) noteOn(d1,e.timeStamp||performance.now()); else if(cmd===0x80||(cmd===0x90&&d2===0)) noteOff(d1); }
+
+  // ---------- Sound ----------
+  function midiToFreq(m){return 440*Math.pow(2,(m-69)/12)}
+  function playTone(m){ if(!el('playAudio').checked) return; if(!state.synth.ctx) state.synth.ctx=new(window.AudioContext||window.webkitAudioContext)(); const ctx=state.synth.ctx; const osc=ctx.createOscillator(), g=ctx.createGain(); osc.type='sine'; osc.frequency.value=midiToFreq(m); g.gain.value=0.001; osc.connect(g).connect(ctx.destination); osc.start(); const now=ctx.currentTime; g.gain.linearRampToValueAtTime(0.12,now+0.02); state.synth.nodes[m]={osc:osc,gain:g}; }
+  function stopTone(m){ const node=state.synth.nodes[m]; if(!node) return; const ctx=state.synth.ctx; const now=ctx.currentTime; node.gain.gain.cancelScheduledValues(now); node.gain.gain.setValueAtTime(node.gain.gain.value,now); node.gain.gain.linearRampToValueAtTime(0.0001,now+0.05); node.osc.stop(now+0.06); delete state.synth.nodes[m]; }
+
+  // ---------- Timeline & interaction ----------
+  function setKeyClass(m,cls){const k=document.querySelector(`.key[data-midi="${m}"]`); if(!k)return; k.classList.remove('lesson-correct','lesson-wrong','lesson-expected'); if(cls)k.classList.add(cls)}
+  function pushTimeline(m,ts){const now=ts||performance.now(); if(!state.timeline.length||now-state.lastEventTime>state.chordWindow){state.timeline.push({time:now,notes:[m]}); if(state.timeline.length>64)state.timeline.shift()} else {const g=state.timeline[state.timeline.length-1]; if(!g.notes.includes(m))g.notes.push(m)} state.lastEventTime=now}
+
+  function noteOn(m,ts){
+    resetIdleTimer(); state.held.add(m); setKeyActive(m,true); el('heldCount').textContent=state.held.size; el('lastNote').textContent=midiToName(m); playTone(m); pushTimeline(m,ts);
+    if(((state.lesson.mode==='Learn Scale')|| (state.lesson.mode==='Practice'&&state.practiceKind!=='chord')) && !state.lesson.completed){
+      const RHok=(state.lesson.seqRH.length||state.lesson.seqBothRH.length)&&m>=60;
+      const LHok=(state.lesson.seqLH.length||state.lesson.seqBothLH.length)&&!RHok;
+      if(RHok){ const seq=(state.lesson.seqRH.length?state.lesson.seqRH:state.lesson.seqBothRH); const ok=seq[state.lesson.progressRH] && m===seq[state.lesson.progressRH]; setKeyClass(m,ok?'lesson-correct':'lesson-wrong'); if(ok)state.lesson.progressRH++; }
+      else if(LHok){ const seq=(state.lesson.seqLH.length?state.lesson.seqLH:state.lesson.seqBothLH); const ok=seq[state.lesson.progressLH] && m===seq[state.lesson.progressLH]; setKeyClass(m,ok?'lesson-correct':'lesson-wrong'); if(ok)state.lesson.progressLH++; }
+      const total=(state.lesson.seqRH.length||state.lesson.seqBothRH.length||0)+(state.lesson.seqLH.length||state.lesson.seqBothLH.length||0);
+      const done=(state.lesson.progressRH+state.lesson.progressLH)>=total;
+      if(done){ state.lesson.completed=true; if(state.lesson.mode==='Practice'){ setTimeout(()=>{ clearLessonHighlights(); resetTimeline(); nextPracticeTarget(); },160); } else { setTimeout(()=>{ clearLessonHighlights(); resetTimeline(); },160); } }
+    }
+    else if(state.lesson.mode==='Learn Chord' || (state.lesson.mode==='Practice'&&state.practiceKind==='chord')){
+      const expected=new Set(state.lesson.chordMidis);
+      if(expected.has(m)) setKeyClass(m,'lesson-correct'); else setKeyClass(m,'lesson-wrong');
+      const allHeld=[...expected].every(mm=>state.held.has(mm));
+      if(allHeld){ state.lesson.completed=true; el('lessonInfo').textContent='Chord complete!'; setTimeout(()=>{ clearLessonHighlights(); resetTimeline(); if(state.lesson.mode==='Practice') nextPracticeTarget(); },180); }
+    }
+    drawGrandStaff();
+  }
+  function noteOff(m){
+    resetIdleTimer(); state.held.delete(m); setKeyActive(m,false); el('heldCount').textContent=state.held.size; stopTone(m);
+    if(((state.lesson.mode==='Learn Scale')||(state.lesson.mode==='Practice')) && !state.lesson.completed){
+      const k=document.querySelector(`.key[data-midi="${m}"]`);
+      if(k && k.classList.contains('lesson-wrong')){ k.classList.remove('lesson-wrong','lesson-expected','lesson-correct'); }
+    }
+    drawGrandStaff();
+  }
+
+  // ---------- Boot ----------
+  setupUI();
+  drawGrandStaff();
+
+  // Quick assertions to catch regressions
+  try {
+    const yC = yFromStep(0), yLedger = bottomTrebleY() + STAFF.gap;
+    console.assert(Math.abs(yC - yLedger) < 0.6, 'Middle C on center ledger');
+  } catch(_){}
+})();
+</script>
+</body>
+</html>
